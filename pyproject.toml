@@ -6,7 +6,6 @@ authors = ["Adam Goldschmidt <adamgold7@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-beautifulsoup4 = "^4.8.2"
 aiohttp = "^3.6.2"
 
 [tool.poetry.dev-dependencies]
