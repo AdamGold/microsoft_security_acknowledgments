@@ -1,6 +1,5 @@
 import asyncio
 import csv
-import itertools
 import json
 import time
 from collections import defaultdict
@@ -9,58 +8,9 @@ from typing import Dict, List
 
 import aiohttp
 
-FIRST_YEAR = 2015
-FIELDS = [
-    "title",
-    "cve",
-    "ack",
-    "date",
-    "data_url",
-    "display_url",
-    "desc",
-    "cvss",
-    "exploited",
-]
-
-
-class Vulnerability:
-    """class representing a vulnerability"""
-
-    __slots__ = FIELDS
-    # for saving memory
-
-    def __init__(
-        self,
-        title: str,
-        cve: str,
-        ack: str,
-        date: datetime,
-        data_url: str = "",
-        display_url: str = "",
-        desc: str = "",
-        cvss: float = 0,
-        exploited: str = "",
-    ):
-        self.title = title
-        self.cve = cve
-        self.ack = ack
-        self.date = date
-        self.data_url = data_url
-        self.display_url = display_url
-        self.desc = desc
-        self.cvss = cvss
-        self.exploited = exploited
-
-    def list_of_attrs(self):
-        return [getattr(self, attr) for attr in self.__slots__]
-
-    def __repr__(self):
-        attrs = {attr: getattr(self, attr) for attr in self.__slots__}
-        return "<{klass} @{id:x} {attrs}>".format(
-            klass=self.__class__.__name__,
-            id=id(self) & 0xFFFFFF,
-            attrs=" ".join("{}={!r}".format(k, v) for k, v in attrs.items()),
-        )
+from src.utils import cleanhtml
+from src.vulnerability import Vulnerability
+from src.consts import FIELDS, FIRST_YEAR
 
 
 async def parse_year_xml(session: aiohttp.ClientSession, writer, year: int):
@@ -73,8 +23,8 @@ async def parse_year_xml(session: aiohttp.ClientSession, writer, year: int):
         cveNumber = vuln["cveNumber"]
         vuln_instance = Vulnerability(
             title=vuln["cveTitle"],
-            cve=cveNumber,
-            ack=" ".join(vuln["acknowledgments"]),
+            cve_id=cveNumber,
+            ack=cleanhtml(" ".join(vuln["acknowledgments"])),
             date=date,
         )
 
@@ -86,7 +36,7 @@ async def parse_year_xml(session: aiohttp.ClientSession, writer, year: int):
             result = await more_info_response.text()
             # parse HTML to get desc, last updated, max CVSS score, exploited
             detailed = json.loads(result)
-            vuln_instance.desc = detailed["description"].split("\n")[0]
+            vuln_instance.desc = cleanhtml(detailed["description"].split("\n")[0])
             vuln_instance.exploited = detailed["exploited"]
             if products := detailed["affectedProducts"]:
                 # get max CVSS score
@@ -106,7 +56,7 @@ async def parse_year_xml(session: aiohttp.ClientSession, writer, year: int):
 async def scan():
     with open("data.csv", "w",) as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(FIELDS)
+        writer.writerow([field.capitalize().replace("_", " ") for field in FIELDS])
         async with aiohttp.ClientSession() as session:
             tasks = [
                 parse_year_xml(
