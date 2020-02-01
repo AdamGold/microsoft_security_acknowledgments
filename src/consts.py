@@ -10,3 +10,4 @@ FIELDS = [
     "cvss",
     "exploited",
 ]
+FILE_NAME = "data.csv"

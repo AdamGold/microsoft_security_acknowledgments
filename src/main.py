@@ -10,7 +10,34 @@ import aiohttp
 
 from src.utils import cleanhtml
 from src.vulnerability import Vulnerability
-from src.consts import FIELDS, FIRST_YEAR
+from src.consts import FIELDS, FIRST_YEAR, FILE_NAME
+
+
+def get_max_cvss(products: list, vuln_instance: Vulnerability):
+    # get max CVSS score
+    try:
+        base_scores = [
+            float(product["baseScore"]) for product in products if product["baseScore"]
+        ]
+        vuln_instance.cvss = max(base_scores)
+    except ValueError:  # no base scores
+        return 0
+
+
+async def get_detailed_vulnerability(
+    session: aiohttp.ClientSession, vuln_instance: Vulnerability
+):
+    vuln_instance.data_url = f"https://portal.msrc.microsoft.com/api/security-guidance/en-us/CVE/{vuln_instance.cve_id}"
+    vuln_instance.display_url = f"https://portal.msrc.microsoft.com/en-us/security-guidance/advisory/{vuln_instance.cve_id}"
+    # visit URL
+    more_info_response = await session.get(vuln_instance.data_url)
+    result = await more_info_response.text()
+    # parse HTML to get desc, last updated, max CVSS score, exploited
+    detailed = json.loads(result)
+    vuln_instance.desc = cleanhtml(detailed["description"].split("\n")[0])
+    vuln_instance.exploited = detailed["exploited"]
+    if products := detailed["affectedProducts"]:
+        get_max_cvss(products, vuln_instance)
 
 
 async def parse_year_xml(session: aiohttp.ClientSession, writer, year: int):
@@ -29,32 +56,12 @@ async def parse_year_xml(session: aiohttp.ClientSession, writer, year: int):
         )
 
         if cveNumber:
-            vuln_instance.data_url = f"https://portal.msrc.microsoft.com/api/security-guidance/en-us/CVE/{cveNumber}"
-            vuln_instance.display_url = f"https://portal.msrc.microsoft.com/en-us/security-guidance/advisory/{cveNumber}"
-            # visit URL
-            more_info_response = await session.get(vuln_instance.data_url)
-            result = await more_info_response.text()
-            # parse HTML to get desc, last updated, max CVSS score, exploited
-            detailed = json.loads(result)
-            vuln_instance.desc = cleanhtml(detailed["description"].split("\n")[0])
-            vuln_instance.exploited = detailed["exploited"]
-            if products := detailed["affectedProducts"]:
-                # get max CVSS score
-                try:
-                    base_scores = [
-                        float(product["baseScore"])
-                        for product in products
-                        if product["baseScore"]
-                    ]
-                    vuln_instance.cvss = max(base_scores)
-                except ValueError:
-                    pass
-
+            await get_detailed_vulnerability(session, vuln_instance)
             writer.writerow(vuln_instance.list_of_attrs())
 
 
 async def scan():
-    with open("data.csv", "w",) as csvfile:
+    with open(FILE_NAME, "w",) as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow([field.capitalize().replace("_", " ") for field in FIELDS])
         async with aiohttp.ClientSession() as session:
